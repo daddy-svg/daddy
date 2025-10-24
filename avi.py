@@ -2,95 +2,242 @@ import pyautogui as pag
 import time
 import requests
 import os
+import subprocess
 import sys
 
-# Optional: You can add your GoFile API token here (or leave blank for anonymous upload)
-GOFILE_API_TOKEN = ""  # Leave empty if you don't have one
+print("🚀 Avica ID Capture Script Started!")
+print(f"Current working directory: {os.getcwd()}")
+print(f"Python version: {sys.version}")
 
-# Wait for Avica setup to finish installing
-time.sleep(40)
+# Check if Avica installer exists
+avica_installer = "Avica_setup.exe"
+demo_mode = not os.path.exists(avica_installer)
 
-print("🚀 Starting Avica automation...")
+if demo_mode:
+    print("⚠️ Demo mode: No Avica installer found")
+else:
+    print(f"✅ Avica installer found ({os.path.getsize(avica_installer)} bytes)")
 
-# Define click actions (x, y, duration)
-actions = [
-    (516, 405, 4),  # Install
-    (50, 100, 1),   # Tick launch Avica
-    (496, 438, 4),  # Later Update
-    (249, 203, 4),  # Allow RDP button
-    (249, 203, 4),
-    (249, 203, 4),
-    (249, 203, 4),
-    (447, 286, 4),  # Launch Avica & upload screenshot
-]
+# Function to launch Avica
+def launch_avica_and_wait():
+    print("🚀 Launching Avica...")
+    
+    avica_paths = [
+        r"C:\Program Files (x86)\Avica\Avica.exe",
+        r"C:\Program Files\Avica\Avica.exe",
+        r"C:\Users\Public\Desktop\Avica.exe"
+    ]
+    
+    launched = False
+    for path in avica_paths:
+        if os.path.exists(path):
+            try:
+                print(f"📍 Found Avica at: {path}")
+                subprocess.Popen([path])
+                launched = True
+                break
+            except Exception as e:
+                print(f"❌ Launch error: {e}")
+    
+    if not launched:
+        try:
+            subprocess.Popen('start "" "Avica"', shell=True)
+            launched = True
+        except:
+            print("❌ Could not launch Avica")
+    
+    if launched:
+        print("⏳ Waiting 15 seconds for Avica to load...")
+        time.sleep(15)
+    
+    return launched
 
-# Screenshot file name
-img_filename = "NewAvicaRemoteID.png"
-
-
-def upload_image_to_gofile(img_filename):
-    """Uploads the screenshot to GoFile.io using the 2025 API."""
-    url = "https://api.gofile.io/contents/uploadfile"
-    headers = {}
-
-    if GOFILE_API_TOKEN.strip():
-        headers = {"Authorization": f"Bearer {GOFILE_API_TOKEN}"}
-
+# Function to minimize other windows (simple approach)
+def minimize_cmd_windows():
     try:
-        with open(img_filename, "rb") as img_file:
-            files = {"file": img_file}
-            print("📤 Uploading screenshot to GoFile.io ...")
-            response = requests.post(url, headers=headers, files=files)
-            response.raise_for_status()
-            result = response.json()
-
-            print("🧾 GoFile Response:", result)
-
-            if result.get("status") == "ok":
-                download_page = result["data"]["downloadPage"]
-                # Append to show.bat for GitHub Action display
-                with open("show.bat", "a", encoding="utf-8") as bat_file:
-                    bat_file.write(f'\necho Avica Remote ID : {download_page}\n')
-                print(f"✅ Image uploaded successfully: {download_page}")
-                return download_page
-            else:
-                print("❌ Upload error:", result)
-                return None
+        print("🗄️ Attempting to minimize CMD windows...")
+        # Use Alt+Tab to cycle through windows
+        pag.keyDown('alt')
+        pag.press('tab')
+        pag.press('tab')  # Move away from CMD
+        pag.keyUp('alt')
+        time.sleep(2)
+        
+        # Try to click on Avica area (center of screen)
+        screen_width, screen_height = pag.size()
+        center_x, center_y = screen_width // 2, screen_height // 2
+        pag.click(center_x, center_y)
+        time.sleep(2)
+        
+        print("✅ Window focus adjusted")
     except Exception as e:
-        print(f"⚠️ Failed to upload image: {e}")
+        print(f"⚠️ Window management error: {e}")
+
+# Function to take multiple screenshots
+def capture_avica_screenshots():
+    screenshots = []
+    
+    try:
+        print("📸 Taking screenshots...")
+        
+        # Take screenshot 1: Immediate
+        screenshot1 = pag.screenshot()
+        filename1 = 'avica_screenshot_1.png'
+        screenshot1.save(filename1)
+        screenshots.append(filename1)
+        print(f"✅ Screenshot 1 saved: {filename1}")
+        
+        # Try clicking in center to ensure Avica is focused
+        screen_width, screen_height = pag.size()
+        center_x, center_y = screen_width // 2, screen_height // 2
+        pag.click(center_x, center_y)
+        time.sleep(3)
+        
+        # Take screenshot 2: After centering
+        screenshot2 = pag.screenshot()
+        filename2 = 'avica_screenshot_2.png'
+        screenshot2.save(filename2)
+        screenshots.append(filename2)
+        print(f"✅ Screenshot 2 saved: {filename2}")
+        
+        # Crop center area for ID focus
+        width, height = screenshot2.size
+        left = width // 4
+        top = height // 4
+        right = 3 * width // 4
+        bottom = 3 * height // 4
+        
+        cropped = screenshot2.crop((left, top, right, bottom))
+        filename3 = 'avica_id_focus.png'
+        cropped.save(filename3)
+        screenshots.append(filename3)
+        print(f"✅ Cropped ID focus saved: {filename3}")
+        
+        return screenshots
+        
+    except Exception as e:
+        print(f"❌ Screenshot error: {e}")
+        return screenshots
+
+# Upload function
+def upload_to_gofile(filename):
+    print(f"📤 Uploading {filename}...")
+    url = 'https://store1.gofile.io/uploadFile'
+    
+    try:
+        if not os.path.exists(filename):
+            return None
+            
+        with open(filename, 'rb') as f:
+            files = {'file': f}
+            response = requests.post(url, files=files, timeout=60)
+            result = response.json()
+            
+            if result['status'] == 'ok':
+                link = result['data']['downloadPage']
+                print(f"✅ {filename} → {link}")
+                return link
+            else:
+                print(f"❌ Upload failed for {filename}")
+                return None
+                
+    except Exception as e:
+        print(f"❌ Upload error for {filename}: {e}")
         return None
 
+# Main execution
+print("\n" + "="*50)
+print("🎯 STARTING AVICA ID CAPTURE SEQUENCE")
+print("="*50)
 
-# Perform the click sequence
-time.sleep(10)
+# Initial setup wait
+if demo_mode:
+    print("⏳ Demo mode: Short wait (10s)")
+    time.sleep(10)
+else:
+    print("⏳ Normal mode: System stabilization (20s)")
+    time.sleep(20)
 
-for x, y, duration in actions:
-    pag.click(x, y, duration=duration)
-    print(f"🖱️ Clicked at ({x}, {y}) with duration {duration}")
-    time.sleep(2)
-
-    # If the action corresponds to launching Avica and uploading
-    if (x, y) == (447, 286):
-        print("🖥️ Launching Avica and preparing screenshot...")
+# Perform Avica installation clicks
+if not demo_mode:
+    print("\n🖱️ Performing Avica setup clicks...")
+    
+    setup_sequence = [
+        (516, 405, 3, "Install button"),
+        (496, 438, 3, "Later/Skip update"), 
+        (249, 203, 3, "Allow remote access - Try 1"),
+        (249, 203, 3, "Allow remote access - Try 2"),
+        (249, 203, 3, "Allow remote access - Try 3"),
+    ]
+    
+    for x, y, duration, desc in setup_sequence:
+        print(f"🖱️ {desc} at ({x}, {y})")
         try:
-            os.system('"C:\\Program Files (x86)\\Avica\\Avica.exe"')
+            pag.click(x, y, duration=duration)
+            print(f"✅ Clicked: {desc}")
         except Exception as e:
-            print(f"⚠️ Could not start Avica: {e}")
+            print(f"❌ Click failed: {e}")
+        
+        time.sleep(8)  # Wait between clicks
 
-        time.sleep(10)
-        pag.click(249, 203, duration=4)  # Attempt to click Allow again
-        time.sleep(10)
-
-        # Take screenshot and upload
-        pag.screenshot().save(img_filename)
-        print(f"📸 Screenshot saved as {img_filename}")
-
-        gofile_link = upload_image_to_gofile(img_filename)
-        if not gofile_link:
-            print("❌ Failed to get GoFile link.")
-        else:
-            print(f"🔗 GoFile Link: {gofile_link}")
-
+# Launch Avica
+print("\n🚀 Launching Avica application...")
+if not demo_mode:
+    launch_avica_and_wait()
+else:
+    print("⏳ Demo mode: Simulating Avica launch wait...")
     time.sleep(10)
 
-print("✅ Avica setup automation complete!")
+# Final wait before screenshots
+print("⏳ Final wait before capturing (10s)...")
+time.sleep(10)
+
+# Adjust window focus
+minimize_cmd_windows()
+
+# Capture screenshots
+print("\n📸 Starting screenshot capture...")
+screenshots = capture_avica_screenshots()
+
+if screenshots:
+    print(f"\n📤 Uploading {len(screenshots)} screenshots...")
+    
+    links = {}
+    for filename in screenshots:
+        link = upload_to_gofile(filename)
+        if link:
+            links[filename] = link
+    
+    # Write results
+    if links:
+        print("\n" + "="*60)
+        print("🎉 AVICA SCREENSHOTS SUCCESSFULLY UPLOADED!")
+        print("="*60)
+        
+        try:
+            with open('show.bat', 'a') as f:
+                f.write('\necho ================================\n')
+                f.write('echo 🎯 AVICA REMOTE ID SCREENSHOTS\n')
+                f.write('echo ================================\n')
+                
+                for filename, link in links.items():
+                    f.write(f'echo 📱 {filename}: {link}\n')
+                    print(f"📱 {filename}: {link}")
+                
+                f.write('echo ================================\n')
+                f.write('echo Check above links for Avica ID!\n')
+                f.write('echo ================================\n')
+            
+            print("✅ Links saved to show.bat")
+            
+        except Exception as e:
+            print(f"❌ Error writing to show.bat: {e}")
+        
+        print("="*60)
+    else:
+        print("❌ No successful uploads")
+else:
+    print("❌ No screenshots captured")
+
+print("\n✅ Avica ID capture script completed!")
+print("🔍 Check the uploaded images for Avica Remote ID and Password")
